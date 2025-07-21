@@ -19,32 +19,33 @@
 #define ADVENTURE_CAMERA_DEADZONE 8
 #endif
 
+// Track last cardinal direction for facing
+static direction_e facing_dir = DIR_DOWN;
+
 void adventure_init(void) BANKED {
     // Set camera to follow player
     camera_offset_x = 0;
     camera_offset_y = 0;
     camera_deadzone_x = ADVENTURE_CAMERA_DEADZONE;
     camera_deadzone_y = ADVENTURE_CAMERA_DEADZONE;
+    // Initialize facing direction
+    facing_dir = DIR_DOWN;
 }
 
 void adventure_update(void) BANKED {
     actor_t *hit_actor;
     UBYTE tile_start, tile_end;
     UBYTE angle = 0;
-    direction_e new_dir = DIR_NONE;
+    UBYTE player_moving = 0;
 
-    player_moving = FALSE;
-
-    if (INPUT_RECENT_LEFT) {
-        new_dir = DIR_LEFT;
-    } else if (INPUT_RECENT_RIGHT) {
-        new_dir = DIR_RIGHT;
-    } else if (INPUT_RECENT_UP) {
-        new_dir = DIR_UP;
-    } else if (INPUT_RECENT_DOWN) {
-        new_dir = DIR_DOWN;
+    // Update facing_dir only on single cardinal input (ignore diagonals)
+    if ((INPUT_LEFT ^ INPUT_RIGHT) && !INPUT_UP && !INPUT_DOWN) {
+        facing_dir = INPUT_LEFT ? DIR_LEFT : DIR_RIGHT;
+    } else if ((INPUT_UP ^ INPUT_DOWN) && !INPUT_LEFT && !INPUT_RIGHT) {
+        facing_dir = INPUT_UP ? DIR_UP : DIR_DOWN;
     }
 
+    // Compute movement angle
     if (INPUT_LEFT) {
         player_moving = TRUE;
         if (INPUT_UP) {
@@ -129,15 +130,9 @@ void adventure_update(void) BANKED {
         }
     }
 
-    if (new_dir != DIR_NONE) {
-        actor_set_dir(&PLAYER, new_dir, player_moving);
-    } else {
-        actor_set_anim_idle(&PLAYER);
-    }
-
+    // Check for trigger collisions
     hit_actor = NULL;
     if (IS_FRAME_ODD) {
-        // Check for trigger collisions
         if (trigger_activate_at_intersection(&PLAYER.bounds, &PLAYER.pos, FALSE)) {
             // Landed on a trigger
             return;
@@ -157,5 +152,12 @@ void adventure_update(void) BANKED {
         if (hit_actor && !(hit_actor->collision_group & COLLISION_GROUP_MASK) && hit_actor->script.bank) {
             script_execute(hit_actor->script.bank, hit_actor->script.ptr, 0, 1, 0);
         }
+    }
+
+    // Facing and animation update
+    if (player_moving) {
+        actor_set_dir(&PLAYER, facing_dir, TRUE);
+    } else {
+        actor_set_anim_idle(&PLAYER);
     }
 }
