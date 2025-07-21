@@ -19,8 +19,12 @@
 #define ADVENTURE_CAMERA_DEADZONE 8
 #endif
 
+#define COLLISION_SLOPE 0x10
+
 // Track last cardinal direction for facing
 static direction_e facing_dir = DIR_DOWN;
+static point16_t player_delta = {0, 0};
+static point16_t player_push_delta = {0, 0};
 
 void adventure_init(void) BANKED {
     // Set camera to follow player
@@ -30,6 +34,10 @@ void adventure_init(void) BANKED {
     camera_deadzone_y = ADVENTURE_CAMERA_DEADZONE;
     // Initialize facing direction
     facing_dir = DIR_DOWN;
+    player_delta.x  = 0;
+    player_delta.y  = 0;
+    player_push_delta.x = 0;
+    player_push_delta.y = 0;
 }
 
 void adventure_update(void) BANKED {
@@ -74,29 +82,56 @@ void adventure_update(void) BANKED {
 
     if (player_moving) {
         upoint16_t new_pos;
-        new_pos.x = PLAYER.pos.x;
-        new_pos.y = PLAYER.pos.y;
-        upoint_translate_angle(&new_pos, angle, PLAYER.move_speed);
+
+        player_delta.x  = 0;
+        player_delta.y  = 0;
+
+        point_translate_angle_to_delta(&player_delta, angle, PLAYER.move_speed);
+
+        player_delta.x += player_push_delta.x;
+        player_delta.y += player_push_delta.y;
+
+        player_push_delta.x = 0;
+        player_push_delta.y = 0;
+    
+        new_pos.x = PLAYER.pos.x + player_delta.x;
+        new_pos.y = PLAYER.pos.y - player_delta.y;
+
 
         // Step X
         tile_start = SUBPX_TO_TILE(PLAYER.pos.y + PLAYER.bounds.top);
         tile_end   = SUBPX_TO_TILE(PLAYER.pos.y + PLAYER.bounds.bottom) + 1;
-        if (angle < ANGLE_180DEG) {
+        if (player_delta.x > 0) {
             UBYTE tile_x = SUBPX_TO_TILE(new_pos.x + PLAYER.bounds.right);
             while (tile_start != tile_end) {
-
-                if (tile_at(tile_x, tile_start) & COLLISION_LEFT) {
+                UBYTE tile = tile_at(tile_x, tile_start);
+                if (tile & COLLISION_LEFT) {
                     new_pos.x = TILE_TO_SUBPX(tile_x) - PLAYER.bounds.right - 1;
+                    if (tile & COLLISION_SLOPE && player_delta.y == 0) {
+                        if (tile & COLLISION_TOP) {
+                            player_push_delta.y = PX_TO_SUBPX(1);
+                        } else if (tile & COLLISION_BOTTOM) {
+                            player_push_delta.y = -PX_TO_SUBPX(1);
+                        }
+                    } 
                     break;
                 }
                 tile_start++;
             }
             PLAYER.pos.x = MIN(image_width_subpx - PLAYER.bounds.right - PX_TO_SUBPX(1), new_pos.x);
-        } else {
+        } else if (player_delta.x < 0) {
             UBYTE tile_x = SUBPX_TO_TILE(new_pos.x + PLAYER.bounds.left);
             while (tile_start != tile_end) {
-                if (tile_at(tile_x, tile_start) & COLLISION_RIGHT) {
+                UBYTE tile = tile_at(tile_x, tile_start);
+                if (tile & COLLISION_RIGHT) {
                     new_pos.x = TILE_TO_SUBPX(tile_x + 1) - PLAYER.bounds.left;
+                    if (tile & COLLISION_SLOPE && player_delta.y == 0) {
+                        if (tile & COLLISION_TOP) {
+                            player_push_delta.y = PX_TO_SUBPX(1);
+                        } else if (tile & COLLISION_BOTTOM) {
+                            player_push_delta.y = -PX_TO_SUBPX(1);
+                        }
+                    }                    
                     break;
                 }
                 tile_start++;
@@ -107,21 +142,37 @@ void adventure_update(void) BANKED {
         // Step Y
         tile_start = SUBPX_TO_TILE(PLAYER.pos.x + PLAYER.bounds.left);
         tile_end   = SUBPX_TO_TILE(PLAYER.pos.x + PLAYER.bounds.right) + 1;
-        if (angle > ANGLE_90DEG && angle < ANGLE_270DEG) {
+        if (player_delta.y < 0) {
             UBYTE tile_y = SUBPX_TO_TILE(new_pos.y + PLAYER.bounds.bottom);
             while (tile_start != tile_end) {
-                if (tile_at(tile_start, tile_y) & COLLISION_TOP) {
+                UBYTE tile = tile_at(tile_start, tile_y);
+                if (tile & COLLISION_TOP) {
                     new_pos.y = TILE_TO_SUBPX(tile_y) - PLAYER.bounds.bottom - 1;
+                    if (tile & COLLISION_SLOPE && player_delta.x == 0) {
+                        if (tile & COLLISION_LEFT) {
+                            player_push_delta.x = -PLAYER.move_speed;
+                        } else if (tile & COLLISION_RIGHT) {
+                            player_push_delta.x = PLAYER.move_speed;
+                        }
+                    }
                     break;
                 }
                 tile_start++;
             }
             PLAYER.pos.y = new_pos.y;
-        } else {
+        } else if (player_delta.y > 0) {
             UBYTE tile_y = SUBPX_TO_TILE(new_pos.y + PLAYER.bounds.top);
             while (tile_start != tile_end) {
-                if (tile_at(tile_start, tile_y) & COLLISION_BOTTOM) {
+                UBYTE tile = tile_at(tile_start, tile_y);
+                if (tile & COLLISION_BOTTOM) {
                     new_pos.y = TILE_TO_SUBPX(tile_y + 1) - PLAYER.bounds.top;
+                    if (tile & COLLISION_SLOPE && player_delta.x == 0) {
+                        if (tile & COLLISION_LEFT) {
+                            player_push_delta.x = -PLAYER.move_speed;
+                        } else if (tile & COLLISION_RIGHT) {
+                            player_push_delta.x = PLAYER.move_speed;
+                        }
+                    }                    
                     break;
                 }
                 tile_start++;
