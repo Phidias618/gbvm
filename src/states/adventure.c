@@ -3,6 +3,7 @@
 #include "data/states_defines.h"
 #include "states/adventure.h"
 
+#include <string.h>
 #include "actor.h"
 #include "camera.h"
 #include "collision.h"
@@ -11,9 +12,22 @@
 #include "scroll.h"
 #include "trigger.h"
 #include "data_manager.h"
+#include "events.h"
 #include "rand.h"
 #include "vm.h"
 #include "math.h"
+
+// Feature Flags --------------------------------------------------------------
+// Optional feature flags, set in 'state_defines.h'
+
+// #define FEAT_ADVENTURE_BLANK
+// #define FEAT_ADVENTURE_DASH
+// #define FEAT_ADVENTURE_RUN
+// #define FEAT_ADVENTURE_KNOCKBACK
+
+// End of Feature Flags -------------------------------------------------------
+
+// Constants ------------------------------------------------------------------
 
 #ifndef ADVENTURE_CAMERA_DEADZONE
 #define ADVENTURE_CAMERA_DEADZONE 8
@@ -21,10 +35,85 @@
 
 #define COLLISION_SLOPE 0x10
 
+#define COL_CHECK_X 0x1
+#define COL_CHECK_Y 0x2
+#define COL_CHECK_ACTORS 0x4
+#define COL_CHECK_TRIGGERS 0x8
+#define COL_CHECK_WALLS 0x10
+#define COL_CHECK_ALL COL_CHECK_X | COL_CHECK_Y | COL_CHECK_ACTORS | COL_CHECK_TRIGGERS | COL_CHECK_WALLS
+
+// End of Constants -----------------------------------------------------------
+
+// Macros ---------------------------------------------------------------------
+
+#define VEL_TO_SUBPX(v) ((((v) & 0x8000) ? (((v) >> 8) | 0xFF00) : ((v) >> 8)) << 1)
+
+// End of Macros --------------------------------------------------------------
+
+// Type Definitions -----------------------------------------------------------
+
+typedef enum
+{
+    IDLE_INIT = 0,
+    IDLE_END,
+    DASH_INIT,
+    DASH_END,
+    KNOCKBACK_INIT,
+    KNOCKBACK_END,
+    BLANK_INIT,
+    BLANK_END,
+    DASH_READY,
+    RUN_INIT,
+    RUN_END,
+    CALLBACK_SIZE
+} callback_e;
+
+// End of Type Definitions ----------------------------------------------------
+
+// Engine Fields --------------------------------------------------------------
+
+WORD adv_walk_vel;            // Maximum velocity while walking
+WORD adv_run_vel;             // Maximum velocity while running
+WORD adv_dec;
+
+// End of Engine Fields -------------------------------------------------------
+
+// Runtime State --------------------------------------------------------------
+
+script_event_t adv_events[CALLBACK_SIZE];
+
+WORD adv_vel_x;               // Tracks the player's x-velocity between frames
+WORD adv_vel_y;               // Tracks the player's y-velocity between frames
+
 // Track last cardinal direction for facing
 static direction_e facing_dir = DIR_DOWN;
-static point16_t player_delta = {0, 0};
-static point16_t player_push_delta = {0, 0};
+static point16_t delta;
+static point16_t movement_delta;
+static point16_t player_push_delta;
+
+// Solid actors
+actor_t *adv_attached_actor;  // The last actor the player hit, and that they were attached to
+UBYTE adv_is_actor_attached;  // Keeps track of whether the player is currently on an actor
+UWORD adv_attached_prev_x;    // Keeps track of the pos.x of the attached actor from the previous frame
+UWORD adv_attached_prev_y;    // Keeps track of the pos.y of the attached actor from the previous frame
+UWORD adv_temp_y = 0;         // Temporary y position for the player when moving and colliding with an solid actor
+static direction_e collision_dir;
+static WORD temp_y;    // Player's position on the last frame
+static WORD temp_x;    // Player's position on the last frame
+
+// End of Runtime State -------------------------------------------------------
+
+// Function Definitions -------------------------------------------------------
+
+static void move_and_collide(UBYTE mask);
+static void adv_deceleration();
+
+void adv_state_script_attach(SCRIPT_CTX *THIS) OLDCALL BANKED;
+void adv_state_script_detach(SCRIPT_CTX *THIS) OLDCALL BANKED;
+void adv_callback_reset(void);
+static void adv_callback_execute(UBYTE i);
+
+// End of Function Definitions ------------------------------------------------
 
 void adventure_init(void) BANKED {
     // Set camera to follow player
@@ -34,10 +123,19 @@ void adventure_init(void) BANKED {
     camera_deadzone_y = ADVENTURE_CAMERA_DEADZONE;
     // Initialize facing direction
     facing_dir = DIR_DOWN;
-    player_delta.x  = 0;
-    player_delta.y  = 0;
+    delta.x  = 0;
+    delta.y  = 0;
+    movement_delta.x = 0;
+    movement_delta.y = 0;
     player_push_delta.x = 0;
     player_push_delta.y = 0;
+    adv_vel_x = 0;
+    adv_vel_y = 0;
+
+    collision_dir = DIR_NONE;
+    // @TODO - should be set in engine.json
+    adv_dec = 256;
+    adv_walk_vel = 12000;
 }
 
 void adventure_update(void) BANKED {
@@ -79,131 +177,85 @@ void adventure_update(void) BANKED {
         player_moving = TRUE;
         angle = ANGLE_180DEG;
     }
+    else {
+        adv_deceleration();
+    }
+
+
 
     if (player_moving) {
-        upoint16_t new_pos;
+        // upoint16_t new_pos;
 
-        player_delta.x  = 0;
-        player_delta.y  = 0;
+        point_translate_angle_to_delta(&movement_delta, angle, PLAYER.move_speed);
 
-        point_translate_angle_to_delta(&player_delta, angle, PLAYER.move_speed);
+        adv_vel_x += movement_delta.x;
+        adv_vel_y -= movement_delta.y; // @todo fix this should be positive, maybe angle is wrong, maybe translate angle fn wrong
 
-        player_delta.x += player_push_delta.x;
-        player_delta.y += player_push_delta.y;
 
-        player_push_delta.x = 0;
-        player_push_delta.y = 0;
     
-        new_pos.x = PLAYER.pos.x + player_delta.x;
-        new_pos.y = PLAYER.pos.y - player_delta.y;
+    // } else {
+    //     delta.x = 0;
+    //     delta.y = 0;
 
+        // adv_vel_x = movement_delta.x;
+        // adv_vel_y = movement_delta.y;
 
-        // Step X
-        tile_start = SUBPX_TO_TILE(PLAYER.pos.y + PLAYER.bounds.top);
-        tile_end   = SUBPX_TO_TILE(PLAYER.pos.y + PLAYER.bounds.bottom) + 1;
-        if (player_delta.x > 0) {
-            UBYTE tile_x = SUBPX_TO_TILE(new_pos.x + PLAYER.bounds.right);
-            while (tile_start != tile_end) {
-                UBYTE tile = tile_at(tile_x, tile_start);
-                if (tile & COLLISION_LEFT) {
-                    new_pos.x = TILE_TO_SUBPX(tile_x) - PLAYER.bounds.right - 1;
-                    if (tile & COLLISION_SLOPE && player_delta.y == 0) {
-                        if (tile & COLLISION_TOP) {
-                            player_push_delta.y = PX_TO_SUBPX(1);
-                        } else if (tile & COLLISION_BOTTOM) {
-                            player_push_delta.y = -PX_TO_SUBPX(1);
-                        }
-                    } 
-                    break;
-                }
-                tile_start++;
-            }
-            PLAYER.pos.x = MIN(image_width_subpx - PLAYER.bounds.right - PX_TO_SUBPX(1), new_pos.x);
-        } else if (player_delta.x < 0) {
-            UBYTE tile_x = SUBPX_TO_TILE(new_pos.x + PLAYER.bounds.left);
-            while (tile_start != tile_end) {
-                UBYTE tile = tile_at(tile_x, tile_start);
-                if (tile & COLLISION_RIGHT) {
-                    new_pos.x = TILE_TO_SUBPX(tile_x + 1) - PLAYER.bounds.left;
-                    if (tile & COLLISION_SLOPE && player_delta.y == 0) {
-                        if (tile & COLLISION_TOP) {
-                            player_push_delta.y = PX_TO_SUBPX(1);
-                        } else if (tile & COLLISION_BOTTOM) {
-                            player_push_delta.y = -PX_TO_SUBPX(1);
-                        }
-                    }                    
-                    break;
-                }
-                tile_start++;
-            }
-            PLAYER.pos.x = new_pos.x;
-        }
+    }
 
-        // Step Y
-        tile_start = SUBPX_TO_TILE(PLAYER.pos.x + PLAYER.bounds.left);
-        tile_end   = SUBPX_TO_TILE(PLAYER.pos.x + PLAYER.bounds.right) + 1;
-        if (player_delta.y < 0) {
-            UBYTE tile_y = SUBPX_TO_TILE(new_pos.y + PLAYER.bounds.bottom);
-            while (tile_start != tile_end) {
-                UBYTE tile = tile_at(tile_start, tile_y);
-                if (tile & COLLISION_TOP) {
-                    new_pos.y = TILE_TO_SUBPX(tile_y) - PLAYER.bounds.bottom - 1;
-                    if (tile & COLLISION_SLOPE && player_delta.x == 0) {
-                        if (tile & COLLISION_LEFT) {
-                            player_push_delta.x = -PLAYER.move_speed;
-                        } else if (tile & COLLISION_RIGHT) {
-                            player_push_delta.x = PLAYER.move_speed;
-                        }
-                    }
-                    break;
-                }
-                tile_start++;
-            }
-            PLAYER.pos.y = new_pos.y;
-        } else if (player_delta.y > 0) {
-            UBYTE tile_y = SUBPX_TO_TILE(new_pos.y + PLAYER.bounds.top);
-            while (tile_start != tile_end) {
-                UBYTE tile = tile_at(tile_start, tile_y);
-                if (tile & COLLISION_BOTTOM) {
-                    new_pos.y = TILE_TO_SUBPX(tile_y + 1) - PLAYER.bounds.top;
-                    if (tile & COLLISION_SLOPE && player_delta.x == 0) {
-                        if (tile & COLLISION_LEFT) {
-                            player_push_delta.x = -PLAYER.move_speed;
-                        } else if (tile & COLLISION_RIGHT) {
-                            player_push_delta.x = PLAYER.move_speed;
-                        }
-                    }                    
-                    break;
-                }
-                tile_start++;
-            }
-            PLAYER.pos.y = new_pos.y;
+    if (collision_dir != DIR_NONE) {
+        WORD delta_mp_x = adv_attached_actor->pos.x - adv_attached_prev_x;
+        WORD delta_mp_y = adv_attached_actor->pos.y - adv_attached_prev_y;
+        adv_attached_prev_x = adv_attached_actor->pos.x;
+        adv_attached_prev_y = adv_attached_actor->pos.y;
+
+        if (collision_dir == DIR_DOWN && delta_mp_y > adv_vel_y) {
+            // PLAYER IS GOING UP
+            adv_vel_y = delta_mp_y;
+        } else if (collision_dir == DIR_UP && delta_mp_y < adv_vel_y) {
+            // PLAYER IS GOING DOWN
+            adv_vel_y = delta_mp_y;
+        } else if (collision_dir == DIR_LEFT && delta_mp_x < adv_vel_x) {
+            adv_vel_x = delta_mp_x;
+        } else if (collision_dir == DIR_RIGHT && delta_mp_x > adv_vel_x) {
+            adv_vel_x = delta_mp_x;
         }
     }
 
-    // Check for trigger collisions
-    hit_actor = NULL;
-    if (IS_FRAME_ODD) {
-        if (trigger_activate_at_intersection(&PLAYER.bounds, &PLAYER.pos, FALSE)) {
-            // Landed on a trigger
-            return;
-        }
 
-        // Check for actor collisions
-        hit_actor = actor_overlapping_player(FALSE);
-        if (hit_actor != NULL && (hit_actor->collision_group & COLLISION_GROUP_MASK)) {
-            player_register_collision_with(hit_actor);
-        }
-    }
+    delta.x = VEL_TO_SUBPX(adv_vel_x);
+    delta.y = VEL_TO_SUBPX(adv_vel_y);
 
-    if (INPUT_A_PRESSED) {
-        if (!hit_actor) {
-            hit_actor = actor_in_front_of_player(8, TRUE);
-        }
-        if (hit_actor && !(hit_actor->collision_group & COLLISION_GROUP_MASK) && hit_actor->script.bank) {
-            script_execute(hit_actor->script.bank, hit_actor->script.ptr, 0, 1, 0);
-        }
-    }
+    delta.x += player_push_delta.x;
+    delta.y -= player_push_delta.y; 
+
+    player_push_delta.x = 0;
+    player_push_delta.y = 0;
+
+    move_and_collide(COL_CHECK_ALL);
+
+    // // Check for trigger collisions
+    // hit_actor = NULL;
+    // if (IS_FRAME_ODD) {
+    //     if (trigger_activate_at_intersection(&PLAYER.bounds, &PLAYER.pos, FALSE)) {
+    //         // Landed on a trigger
+    //         return;
+    //     }
+
+    //     // Check for actor collisions
+    //     hit_actor = actor_overlapping_player(FALSE);
+    //     if (hit_actor != NULL && (hit_actor->collision_group & COLLISION_GROUP_MASK)) {
+    //         player_register_collision_with(hit_actor);
+    //     }
+    // }
+
+    // if (INPUT_A_PRESSED) {
+    //     if (!hit_actor) {
+    //         hit_actor = actor_in_front_of_player(8, TRUE);
+    //     }
+    //     if (hit_actor && !(hit_actor->collision_group & COLLISION_GROUP_MASK) && hit_actor->script.bank) {
+    //         script_execute(hit_actor->script.bank, hit_actor->script.ptr, 0, 1, 0);
+    //     }
+    // }
 
     // Facing and animation update
     if (player_moving) {
@@ -211,4 +263,223 @@ void adventure_update(void) BANKED {
     } else {
         actor_set_anim_idle(&PLAYER);
     }
+}
+
+static void move_and_collide(UBYTE mask)
+{
+    temp_x = PLAYER.pos.x;
+    temp_y = PLAYER.pos.y;
+
+    // Horizontal Movement
+    if (mask & COL_CHECK_X)
+    {
+        UWORD new_x = PLAYER.pos.x + delta.x;
+
+        // Step X
+        UBYTE tile_start = SUBPX_TO_TILE(PLAYER.pos.y + PLAYER.bounds.top);
+        UBYTE tile_end   = SUBPX_TO_TILE(PLAYER.pos.y + PLAYER.bounds.bottom) + 1;
+        if (delta.x > 0) {
+            UBYTE tile_x = SUBPX_TO_TILE(new_x + PLAYER.bounds.right);
+            while (tile_start != tile_end) {
+                UBYTE tile = tile_at(tile_x, tile_start);
+                if (tile & COLLISION_LEFT) {
+                    new_x = TILE_TO_SUBPX(tile_x) - PLAYER.bounds.right - 1;
+                    adv_vel_x = 0;
+                    if (tile & COLLISION_SLOPE && delta.y == 0) {
+                        if (tile & COLLISION_TOP) {
+                            // player_push_delta.y = PX_TO_SUBPX(1);
+                            adv_vel_y = adv_walk_vel;
+                        } else if (tile & COLLISION_BOTTOM) {
+                            // player_push_delta.y = -PX_TO_SUBPX(1);
+                            adv_vel_y = -adv_walk_vel;
+                        }
+                    } 
+                    break;
+                }
+                tile_start++;
+            }
+            PLAYER.pos.x = MIN(image_width_subpx - PLAYER.bounds.right - PX_TO_SUBPX(1), new_x);
+        } else if (delta.x < 0) {
+            UBYTE tile_x = SUBPX_TO_TILE(new_x + PLAYER.bounds.left);
+            while (tile_start != tile_end) {
+                UBYTE tile = tile_at(tile_x, tile_start);
+                if (tile & COLLISION_RIGHT) {
+                    new_x = TILE_TO_SUBPX(tile_x + 1) - PLAYER.bounds.left;
+                    adv_vel_x = 0;
+                    if (tile & COLLISION_SLOPE && delta.y == 0) {
+                        if (tile & COLLISION_TOP) {
+                            // player_push_delta.y = PX_TO_SUBPX(1);
+                            adv_vel_y = adv_walk_vel;
+                        } else if (tile & COLLISION_BOTTOM) {
+                            // player_push_delta.y = -PX_TO_SUBPX(1);
+                            adv_vel_y = -adv_walk_vel;
+                        }
+                    }                    
+                    break;
+                }
+                tile_start++;
+            }
+            PLAYER.pos.x = new_x;
+        }
+    }
+
+    // Vertical Movement
+    if (mask & COL_CHECK_Y)
+    {
+        UWORD new_y = PLAYER.pos.y + delta.y;
+
+        // Step Y
+        UBYTE tile_start = SUBPX_TO_TILE(PLAYER.pos.x + PLAYER.bounds.left);
+        UBYTE tile_end   = SUBPX_TO_TILE(PLAYER.pos.x + PLAYER.bounds.right) + 1;
+        if (delta.y > 0) {
+            UBYTE tile_y = SUBPX_TO_TILE(new_y + PLAYER.bounds.bottom);
+            while (tile_start != tile_end) {
+                UBYTE tile = tile_at(tile_start, tile_y);
+                if (tile & COLLISION_TOP) {
+                    new_y = TILE_TO_SUBPX(tile_y) - PLAYER.bounds.bottom - 1;
+                    adv_vel_y = 0;
+                    if (tile & COLLISION_SLOPE && delta.x == 0) {
+                        if (tile & COLLISION_LEFT) {
+                            adv_vel_x = -PLAYER.move_speed;
+                        } else if (tile & COLLISION_RIGHT) {
+                            adv_vel_x = PLAYER.move_speed;
+                        }
+                    }
+                    break;
+                }
+                tile_start++;
+            }
+            PLAYER.pos.y = new_y;
+        } else if (delta.y < 0) {
+            UBYTE tile_y = SUBPX_TO_TILE(new_y + PLAYER.bounds.top);
+            while (tile_start != tile_end) {
+                UBYTE tile = tile_at(tile_start, tile_y);
+                if (tile & COLLISION_BOTTOM) {
+                    new_y = TILE_TO_SUBPX(tile_y + 1) - PLAYER.bounds.top;
+                    adv_vel_y = 0;
+                    if (tile & COLLISION_SLOPE && delta.x == 0) {
+                        if (tile & COLLISION_LEFT) {
+                            adv_vel_x = -PLAYER.move_speed;
+                        } else if (tile & COLLISION_RIGHT) {
+                            adv_vel_x = PLAYER.move_speed;
+                        }
+                    }                    
+                    break;
+                }
+                tile_start++;
+            }
+            PLAYER.pos.y = new_y;
+        }
+    }
+
+    delta.x  = 0;
+    delta.y  = 0;
+
+    if (mask & COL_CHECK_ACTORS)
+    {
+        actor_t *hit_actor;
+        hit_actor = actor_overlapping_player(FALSE);
+        if (hit_actor != NULL) {
+            const UBYTE is_solid = hit_actor->collision_group & COLLISION_GROUP_FLAG_SOLID;
+             if (is_solid && hit_actor != adv_attached_actor)
+            {
+                adv_attached_prev_x = hit_actor->pos.x;
+                adv_attached_prev_y = hit_actor->pos.y;
+
+                if (hit_actor != adv_attached_actor) {
+                    adv_attached_actor = hit_actor;
+                    adv_attached_prev_x = hit_actor->pos.x;
+                    adv_attached_prev_y = hit_actor->pos.y;
+                    if ((temp_y + PLAYER.bounds.bottom) < (hit_actor->pos.y + hit_actor->bounds.top)) {
+                        delta.y += (hit_actor->pos.y + hit_actor->bounds.top) - (PLAYER.pos.y + PLAYER.bounds.bottom);
+                        collision_dir = DIR_UP;
+                    } else if (temp_y  + (PLAYER.bounds.top) >
+                                hit_actor->pos.y + (hit_actor->bounds.bottom)) {
+                        delta.y += (hit_actor->pos.y + 8 + (hit_actor->bounds.bottom)) -
+                                    (PLAYER.pos.y + (PLAYER.bounds.top));
+                        collision_dir = DIR_DOWN;
+                    } else if (temp_x + (PLAYER.bounds.right) <
+                                hit_actor->pos.x + (hit_actor->bounds.left)) {
+                        delta.x += (hit_actor->pos.x + (hit_actor->bounds.left)) -
+                                    (PLAYER.pos.x + (PLAYER.bounds.right));
+                        collision_dir = DIR_LEFT;
+                    } else if (temp_x + (PLAYER.bounds.left) >
+                                hit_actor->pos.x + (hit_actor->bounds.right)) {
+                        delta.x += (hit_actor->pos.x + 8 + (hit_actor->bounds.right)) -
+                                    (PLAYER.pos.x + (PLAYER.bounds.left));
+                        collision_dir = DIR_RIGHT;
+                    } else {
+                        collision_dir = hit_actor->dir;
+                    }
+                }
+            }
+        } else {
+            adv_attached_actor = NULL;
+            collision_dir = DIR_NONE;
+            adv_attached_prev_x = 0;
+            adv_attached_prev_y = 0;
+        }
+    }
+
+    if (mask & COL_CHECK_TRIGGERS)
+    {
+        trigger_activate_at_intersection(&PLAYER.bounds, &PLAYER.pos, FALSE);
+    }    
+}
+
+
+void adv_callback_attach(SCRIPT_CTX *THIS) OLDCALL BANKED
+{
+    UWORD *slot = VM_REF_TO_PTR(FN_ARG2);
+    UBYTE *bank = VM_REF_TO_PTR(FN_ARG1);
+    UBYTE **ptr = VM_REF_TO_PTR(FN_ARG0);
+    adv_events[*slot].script_bank = *bank;
+    adv_events[*slot].script_addr = *ptr;
+}
+
+void adv_callback_detach(SCRIPT_CTX *THIS) OLDCALL BANKED
+{
+    UWORD *slot = VM_REF_TO_PTR(FN_ARG0);
+    adv_events[*slot].script_bank = NULL;
+    adv_events[*slot].script_addr = NULL;
+}
+
+inline void adv_callback_reset(void)
+{
+    memset(adv_events, 0, sizeof(adv_events));
+}
+
+static void adv_callback_execute(UBYTE i)
+{
+    script_event_t *event = &adv_events[i];
+    if (!event->script_addr)
+        return;
+    if ((event->handle == 0) || ((event->handle & SCRIPT_TERMINATED) != 0))
+    {
+        script_execute(event->script_bank, event->script_addr, &event->handle, 0, 0);
+    }
+}
+
+static void adv_deceleration() {
+  ///////////////////////////
+  //  Deceleration
+  ///////////////////////////
+  if (!(INPUT_LEFT | INPUT_RIGHT)) {
+    if (adv_vel_x > adv_dec) {
+      adv_vel_x -= adv_dec;
+    } else if (adv_vel_x < -adv_dec) {
+      adv_vel_x += adv_dec;
+    } else {
+      adv_vel_x = 0;
+    }
+  }
+  if (!(INPUT_UP | INPUT_DOWN)) {
+    if (adv_vel_y > adv_dec) {
+      adv_vel_y -= adv_dec;
+    } else if (adv_vel_y < -adv_dec) {
+      adv_vel_y += adv_dec;
+    } else {
+      adv_vel_y = 0;
+    }
+  }
 }
