@@ -75,6 +75,7 @@ typedef enum
 WORD adv_walk_vel;            // Maximum velocity while walking
 WORD adv_run_vel;             // Maximum velocity while running
 WORD adv_dec;
+WORD adv_acc;
 
 // End of Engine Fields -------------------------------------------------------
 
@@ -134,8 +135,9 @@ void adventure_init(void) BANKED {
 
     collision_dir = DIR_NONE;
     // @TODO - should be set in engine.json
-    adv_dec = 256;
-    adv_walk_vel = 12000;
+    adv_dec = 1024;
+    adv_acc = 1024;
+    adv_walk_vel = 3200;
 }
 
 void adventure_update(void) BANKED {
@@ -144,63 +146,139 @@ void adventure_update(void) BANKED {
     UBYTE angle = 0;
     UBYTE player_moving = 0;
 
-    // Update facing_dir only on single cardinal input (ignore diagonals)
-    if ((INPUT_LEFT ^ INPUT_RIGHT) && !INPUT_UP && !INPUT_DOWN) {
-        facing_dir = INPUT_LEFT ? DIR_LEFT : DIR_RIGHT;
-    } else if ((INPUT_UP ^ INPUT_DOWN) && !INPUT_LEFT && !INPUT_RIGHT) {
-        facing_dir = INPUT_UP ? DIR_UP : DIR_DOWN;
+    // // Update facing_dir only on single cardinal input (ignore diagonals)
+    // if ((INPUT_LEFT ^ INPUT_RIGHT) && !INPUT_UP && !INPUT_DOWN) {
+    //     facing_dir = INPUT_LEFT ? DIR_LEFT : DIR_RIGHT;
+    // } else if ((INPUT_UP ^ INPUT_DOWN) && !INPUT_LEFT && !INPUT_RIGHT) {
+    //     facing_dir = INPUT_UP ? DIR_UP : DIR_DOWN;
+    // }
+    
+
+   if (INPUT_LEFT && (facing_dir == DIR_LEFT || facing_dir == DIR_NONE)) {
+      facing_dir = DIR_LEFT;
+      player_moving = TRUE;
+      if (INPUT_UP) {
+        adv_vel_x -= adv_acc;
+        adv_vel_x = MAX(adv_vel_x, -adv_walk_vel);
+        adv_vel_y -= adv_acc;
+        adv_vel_y = MAX(adv_vel_y, -adv_walk_vel);
+      } else if (INPUT_DOWN) {
+        adv_vel_x -= adv_acc;
+        adv_vel_x = MAX(adv_vel_x, -adv_walk_vel);
+        adv_vel_y += adv_walk_vel;
+        adv_vel_y = MIN(adv_vel_y, adv_walk_vel);
+      } else {
+        adv_vel_x -= adv_acc;
+        adv_vel_x = MAX(adv_vel_x, -adv_walk_vel);
+      }
+    } else if (INPUT_RIGHT && (facing_dir == DIR_RIGHT || facing_dir == DIR_NONE)) {
+      facing_dir = DIR_RIGHT;
+      player_moving = TRUE;
+      if (INPUT_UP) {
+        adv_vel_x += adv_acc;
+        adv_vel_x = MIN(adv_vel_x, adv_walk_vel);
+        adv_vel_y -= adv_acc;
+        adv_vel_y = MAX(adv_vel_y, -adv_walk_vel);
+
+      } else if (INPUT_DOWN) {
+        adv_vel_x += adv_acc;
+        adv_vel_x = MIN(adv_vel_x, adv_walk_vel);
+        adv_vel_y += adv_acc;
+        adv_vel_y = MIN(adv_vel_y, adv_walk_vel);
+      } else {
+        adv_vel_x += adv_acc;
+        adv_vel_x = MIN(adv_vel_x, adv_walk_vel);
+      }
+    } else if (INPUT_UP && (facing_dir == DIR_UP || facing_dir == DIR_NONE)) {
+      facing_dir = DIR_UP;
+      player_moving = TRUE;
+      if (INPUT_LEFT) {
+        adv_vel_x -= adv_acc;
+        adv_vel_x = MAX(adv_vel_x, -adv_walk_vel);
+        adv_vel_y -= adv_acc;
+        adv_vel_y = MAX(adv_vel_y, -adv_walk_vel);
+      } else if (INPUT_RIGHT) {
+        adv_vel_x += adv_acc;
+        adv_vel_x = MIN(adv_vel_x, adv_walk_vel);
+        adv_vel_y -= adv_acc;
+        adv_vel_y = MAX(adv_vel_y, -adv_walk_vel);
+      } else {
+        adv_vel_y -= adv_acc;
+        adv_vel_y = MAX(adv_vel_y, -adv_walk_vel);
+      }
+    } else if (INPUT_DOWN && (facing_dir == DIR_DOWN || facing_dir == DIR_NONE)) {
+      facing_dir = DIR_DOWN;
+      player_moving = TRUE;
+      if (INPUT_LEFT) {
+        adv_vel_x -= adv_acc;
+        adv_vel_x = MAX(adv_vel_x, -adv_walk_vel);
+        adv_vel_y += adv_acc;
+        adv_vel_y = MIN(adv_vel_y, adv_walk_vel);
+      } else if (INPUT_RIGHT) {
+        adv_vel_x += adv_acc;
+        adv_vel_x = MIN(adv_vel_x, adv_walk_vel);
+        adv_vel_y += adv_acc;
+        adv_vel_y = MIN(adv_vel_y, adv_walk_vel);
+      } else {
+        adv_vel_y += adv_acc;
+        adv_vel_y = MIN(adv_vel_y, adv_walk_vel);
+      }
+    } else {
+      facing_dir = DIR_NONE;
     }
-
-    // Compute movement angle
-    if (INPUT_LEFT) {
-        player_moving = TRUE;
-        if (INPUT_UP) {
-            angle = ANGLE_315DEG;
-        } else if (INPUT_DOWN) {
-            angle = ANGLE_225DEG;
-        } else {
-            angle = ANGLE_270DEG;
-        }
-    } else if (INPUT_RIGHT) {
-        player_moving = TRUE;
-        if (INPUT_UP) {
-            angle = ANGLE_45DEG;
-        } else if (INPUT_DOWN) {
-            angle = ANGLE_135DEG;
-        } else {
-            angle = ANGLE_90DEG;
-        }
-    } else if (INPUT_UP) {
-        player_moving = TRUE;
-        angle = ANGLE_0DEG;
-    } else if (INPUT_DOWN) {
-        player_moving = TRUE;
-        angle = ANGLE_180DEG;
-    }
-    else {
-        adv_deceleration();
-    }
+    adv_deceleration();
 
 
+    // // Compute movement angle
+    // if (INPUT_LEFT) {
+    //     player_moving = TRUE;
+    //     if (INPUT_UP) {
+    //         angle = ANGLE_315DEG;
+    //     } else if (INPUT_DOWN) {
+    //         angle = ANGLE_225DEG;
+    //     } else {
+    //         angle = ANGLE_270DEG;
+    //     }
+    // } else if (INPUT_RIGHT) {
+    //     player_moving = TRUE;
+    //     if (INPUT_UP) {
+    //         angle = ANGLE_45DEG;
+    //     } else if (INPUT_DOWN) {
+    //         angle = ANGLE_135DEG;
+    //     } else {
+    //         angle = ANGLE_90DEG;
+    //     }
+    // } else if (INPUT_UP) {
+    //     player_moving = TRUE;
+    //     angle = ANGLE_0DEG;
+    // } else if (INPUT_DOWN) {
+    //     player_moving = TRUE;
+    //     angle = ANGLE_180DEG;
+    // }
+    // else {
+    //     adv_deceleration();
+    // }
 
-    if (player_moving) {
-        // upoint16_t new_pos;
 
-        point_translate_angle_to_delta(&movement_delta, angle, PLAYER.move_speed);
 
-        adv_vel_x += movement_delta.x;
-        adv_vel_y -= movement_delta.y; // @todo fix this should be positive, maybe angle is wrong, maybe translate angle fn wrong
+    // if (player_moving) {
+    //     // upoint16_t new_pos;
+
+    //     point_translate_angle_to_delta(&movement_delta, angle, PLAYER.move_speed);
+
+    //     adv_vel_x += movement_delta.x;
+    //     adv_vel_y -= movement_delta.y; // @todo fix this should be positive, maybe angle is wrong, maybe translate angle fn wrong
 
 
     
-    // } else {
-    //     delta.x = 0;
-    //     delta.y = 0;
+    // // } else {
+    // //     delta.x = 0;
+    // //     delta.y = 0;
 
-        // adv_vel_x = movement_delta.x;
-        // adv_vel_y = movement_delta.y;
+    //     // adv_vel_x = movement_delta.x;
+    //     // adv_vel_y = movement_delta.y;
 
-    }
+    // }
 
     if (collision_dir != DIR_NONE) {
         WORD delta_mp_x = adv_attached_actor->pos.x - adv_attached_prev_x;
@@ -340,9 +418,9 @@ static void move_and_collide(UBYTE mask)
                     adv_vel_y = 0;
                     if (tile & COLLISION_SLOPE && delta.x == 0) {
                         if (tile & COLLISION_LEFT) {
-                            adv_vel_x = -PLAYER.move_speed;
+                            adv_vel_x = -adv_walk_vel;
                         } else if (tile & COLLISION_RIGHT) {
-                            adv_vel_x = PLAYER.move_speed;
+                            adv_vel_x = adv_walk_vel;
                         }
                     }
                     break;
@@ -359,9 +437,9 @@ static void move_and_collide(UBYTE mask)
                     adv_vel_y = 0;
                     if (tile & COLLISION_SLOPE && delta.x == 0) {
                         if (tile & COLLISION_LEFT) {
-                            adv_vel_x = -PLAYER.move_speed;
+                            adv_vel_x = -adv_walk_vel;
                         } else if (tile & COLLISION_RIGHT) {
-                            adv_vel_x = PLAYER.move_speed;
+                            adv_vel_x = adv_walk_vel;
                         }
                     }                    
                     break;
