@@ -2226,12 +2226,12 @@ finally_check_actor_col:
                     plat_is_actor_attached = FALSE;
                     plat_next_state = FALL_STATE;
                 }
-                else if (((plat_temp_y + EXCLUSIVE_OFFSET(PLAYER.bounds.bottom) - plat_delta_y) < (hit_actor->pos.y + hit_actor->bounds.top)) && (plat_vel_y >= 0)) {
+                else if (((plat_temp_y + PLAYER.bounds.bottom - plat_delta_y - PX_TO_SUBPX(2)) < (hit_actor->pos.y + hit_actor->bounds.top)) && (plat_vel_y >= 0)) {
                     // Attach to actor (solid or platform)
                     plat_attached_actor = hit_actor;
                     plat_attached_prev_x = hit_actor->pos.x;
                     plat_attached_prev_y = hit_actor->pos.y;
-                    PLAYER.pos.y = hit_actor->pos.y + hit_actor->bounds.top - PLAYER.bounds.bottom - 4;
+                    PLAYER.pos.y = hit_actor->pos.y + hit_actor->bounds.top - EXCLUSIVE_OFFSET(PLAYER.bounds.bottom);
                     plat_vel_y = 0;
                     plat_is_actor_attached = TRUE;
                     if (plat_state != DASH_STATE)
@@ -2258,18 +2258,18 @@ finally_check_actor_col:
                     {
                         const UBYTE moving_right = PLAYER.pos.x < hit_actor->pos.x;
 
-                        plat_delta_x = (hit_actor->pos.x - PLAYER.pos.x) +
-                                       (moving_right ? -(PLAYER.bounds.right + -hit_actor->bounds.left)
-                                                     : (-PLAYER.bounds.left + hit_actor->bounds.right) + 16);
+                        plat_delta_x = (hit_actor->pos.x - PLAYER.pos.x) + 
+                            (moving_right
+                                ? (hit_actor->bounds.left - EXCLUSIVE_OFFSET(PLAYER.bounds.right))
+                                : (EXCLUSIVE_OFFSET(hit_actor->bounds.right) - PLAYER.bounds.left));
+                        PLAYER.pos.x += CLAMP(plat_delta_x, -MAX_DELTA, MAX_DELTA);
+                        plat_delta_x = 0;
 
                         plat_wall_col = moving_right ? WALL_COL_RIGHT : WALL_COL_LEFT;
                         plat_last_wall_col = plat_wall_col;
                         plat_coyote_timer = plat_coyote_frames + 1;
 
-                        if ((moving_right && !INPUT_RIGHT) || (!moving_right && !INPUT_LEFT))
-                        {
-                            plat_vel_x = 0;
-                        }
+                        plat_vel_x = 0;
 
 #ifdef FEAT_PLATFORM_DASH
                         if (plat_next_state == DASH_STATE)
