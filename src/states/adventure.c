@@ -90,7 +90,6 @@ WORD adv_vel_y;               // Tracks the player's y-velocity between frames
 static direction_e facing_dir = DIR_DOWN;
 static point16_t delta;
 static point16_t movement_delta;
-static point16_t player_push_delta;
 
 // Solid actors
 actor_t *adv_attached_actor;  // The last actor the player hit, and that they were attached to
@@ -128,8 +127,6 @@ void adventure_init(void) BANKED {
     delta.y  = 0;
     movement_delta.x = 0;
     movement_delta.y = 0;
-    player_push_delta.x = 0;
-    player_push_delta.y = 0;
     adv_vel_x = 0;
     adv_vel_y = 0;
 
@@ -303,37 +300,16 @@ void adventure_update(void) BANKED {
     delta.x = VEL_TO_SUBPX(adv_vel_x);
     delta.y = VEL_TO_SUBPX(adv_vel_y);
 
-    delta.x += player_push_delta.x;
-    delta.y -= player_push_delta.y; 
-
-    player_push_delta.x = 0;
-    player_push_delta.y = 0;
-
     move_and_collide(COL_CHECK_ALL);
 
-    // // Check for trigger collisions
-    // hit_actor = NULL;
-    // if (IS_FRAME_ODD) {
-    //     if (trigger_activate_at_intersection(&PLAYER.bounds, &PLAYER.pos, FALSE)) {
-    //         // Landed on a trigger
-    //         return;
-    //     }
-
-    //     // Check for actor collisions
-    //     hit_actor = actor_overlapping_player(FALSE);
-    //     if (hit_actor != NULL && (hit_actor->collision_group & COLLISION_GROUP_MASK)) {
-    //         player_register_collision_with(hit_actor);
-    //     }
-    // }
-
-    // if (INPUT_A_PRESSED) {
-    //     if (!hit_actor) {
-    //         hit_actor = actor_in_front_of_player(8, TRUE);
-    //     }
-    //     if (hit_actor && !(hit_actor->collision_group & COLLISION_GROUP_MASK) && hit_actor->script.bank) {
-    //         script_execute(hit_actor->script.bank, hit_actor->script.ptr, 0, 1, 0);
-    //     }
-    // }
+    if (INPUT_A_PRESSED) {
+        if (!hit_actor) {
+            hit_actor = actor_in_front_of_player(8, TRUE);
+        }
+        if (hit_actor && !(hit_actor->collision_group & COLLISION_GROUP_MASK) && hit_actor->script.bank) {
+            script_execute(hit_actor->script.bank, hit_actor->script.ptr, 0, 1, 0);
+        }
+    }
 
     // Facing and animation update
     if (player_moving) {
@@ -365,10 +341,8 @@ static void move_and_collide(UBYTE mask)
                     adv_vel_x = 0;
                     if (tile & COLLISION_SLOPE && delta.y == 0) {
                         if (tile & COLLISION_TOP) {
-                            // player_push_delta.y = PX_TO_SUBPX(1);
                             adv_vel_y = adv_walk_vel;
                         } else if (tile & COLLISION_BOTTOM) {
-                            // player_push_delta.y = -PX_TO_SUBPX(1);
                             adv_vel_y = -adv_walk_vel;
                         }
                     } 
@@ -386,10 +360,8 @@ static void move_and_collide(UBYTE mask)
                     adv_vel_x = 0;
                     if (tile & COLLISION_SLOPE && delta.y == 0) {
                         if (tile & COLLISION_TOP) {
-                            // player_push_delta.y = PX_TO_SUBPX(1);
                             adv_vel_y = adv_walk_vel;
                         } else if (tile & COLLISION_BOTTOM) {
-                            // player_push_delta.y = -PX_TO_SUBPX(1);
                             adv_vel_y = -adv_walk_vel;
                         }
                     }                    
@@ -469,22 +441,16 @@ static void move_and_collide(UBYTE mask)
                     adv_attached_prev_x = hit_actor->pos.x;
                     adv_attached_prev_y = hit_actor->pos.y;
                     if ((temp_y + PLAYER.bounds.bottom) < (hit_actor->pos.y + hit_actor->bounds.top)) {
-                        delta.y += (hit_actor->pos.y + hit_actor->bounds.top) - (PLAYER.pos.y + PLAYER.bounds.bottom);
+                        PLAYER.pos.y += (hit_actor->pos.y + hit_actor->bounds.top) - (PLAYER.pos.y + PLAYER.bounds.bottom) - 1;
                         collision_dir = DIR_UP;
-                    } else if (temp_y  + (PLAYER.bounds.top) >
-                                hit_actor->pos.y + (hit_actor->bounds.bottom)) {
-                        delta.y += (hit_actor->pos.y + 8 + (hit_actor->bounds.bottom)) -
-                                    (PLAYER.pos.y + (PLAYER.bounds.top));
+                    } else if ((temp_y  + PLAYER.bounds.top) > (hit_actor->pos.y + hit_actor->bounds.bottom)) {
+                        PLAYER.pos.y += (hit_actor->pos.y + hit_actor->bounds.bottom) - (PLAYER.pos.y + PLAYER.bounds.top) + 1;
                         collision_dir = DIR_DOWN;
-                    } else if (temp_x + (PLAYER.bounds.right) <
-                                hit_actor->pos.x + (hit_actor->bounds.left)) {
-                        delta.x += (hit_actor->pos.x + (hit_actor->bounds.left)) -
-                                    (PLAYER.pos.x + (PLAYER.bounds.right));
+                    } else if ((temp_x + PLAYER.bounds.right) < (hit_actor->pos.x + hit_actor->bounds.left)) {
+                        PLAYER.pos.x += (hit_actor->pos.x + hit_actor->bounds.left) - (PLAYER.pos.x + PLAYER.bounds.right) - 1;
                         collision_dir = DIR_LEFT;
-                    } else if (temp_x + (PLAYER.bounds.left) >
-                                hit_actor->pos.x + (hit_actor->bounds.right)) {
-                        delta.x += (hit_actor->pos.x + 8 + (hit_actor->bounds.right)) -
-                                    (PLAYER.pos.x + (PLAYER.bounds.left));
+                    } else if ((temp_x + PLAYER.bounds.left) > hit_actor->pos.x + hit_actor->bounds.right) {
+                        PLAYER.pos.x += (hit_actor->pos.x + hit_actor->bounds.right) - (PLAYER.pos.x + PLAYER.bounds.left) + 1;
                         collision_dir = DIR_RIGHT;
                     } else {
                         collision_dir = hit_actor->dir;
