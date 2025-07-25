@@ -1001,15 +1001,13 @@ void platform_update(void) BANKED
             }
             // If the player is off the platform to the right, detach
             // from the platform
-            else if (PLAYER.pos.x + PLAYER.bounds.left >
-                     plat_attached_actor->pos.x + PX_TO_SUBPX(1) + plat_attached_actor->bounds.right)
+            else if (PLAYER.pos.x + PLAYER.bounds.left > plat_attached_actor->pos.x + EXCLUSIVE_OFFSET(plat_attached_actor->bounds.right))
             {
                 plat_next_state = FALL_STATE;
                 plat_is_actor_attached = FALSE;
             }
             // If the player is off the platform to the left, detach
-            else if (PLAYER.pos.x + PX_TO_SUBPX(1) + PLAYER.bounds.right <
-                     plat_attached_actor->pos.x + plat_attached_actor->bounds.left)
+            else if (PLAYER.pos.x + EXCLUSIVE_OFFSET(PLAYER.bounds.right) < plat_attached_actor->pos.x + plat_attached_actor->bounds.left)
             {
                 plat_next_state = FALL_STATE;
                 plat_is_actor_attached = FALSE;
@@ -1037,7 +1035,6 @@ void platform_update(void) BANKED
         }
         else
         {
-
             // Normal gravity
             plat_vel_y += plat_grav;
             plat_temp_y = PLAYER.pos.y;
@@ -1373,7 +1370,7 @@ void platform_update(void) BANKED
         else if (INPUT_DOWN)
         {
             // Descend ladder
-            UBYTE tile_y = SUBPX_TO_TILE(PLAYER.pos.y + PLAYER.bounds.bottom + PX_TO_SUBPX(1));
+            UBYTE tile_y = SUBPX_TO_TILE(PLAYER.pos.y + EXCLUSIVE_OFFSET(PLAYER.bounds.bottom));
             UBYTE tile = tile_at(tile_x_mid, tile_y);
             // If tile below is still a ladder climb down
             if (IS_LADDER(tile))
@@ -1954,9 +1951,9 @@ static void move_and_collide(UBYTE mask)
 
         // Edge Locking
         // If the player is past the right screen edge
-        if ((plat_camera_block & CAMERA_LOCK_SCREEN_RIGHT) && ((new_x + PLAYER.bounds.right + PX_TO_SUBPX(1)) > PX_TO_SUBPX(scroll_x + SCREEN_WIDTH)))
+        if ((plat_camera_block & CAMERA_LOCK_SCREEN_RIGHT) && ((new_x + EXCLUSIVE_OFFSET(PLAYER.bounds.right)) > PX_TO_SUBPX(scroll_x + SCREEN_WIDTH)))
         {
-            new_x = PX_TO_SUBPX(scroll_x + SCREEN_WIDTH) - PLAYER.bounds.right - PX_TO_SUBPX(1);
+            new_x = PX_TO_SUBPX(scroll_x + SCREEN_WIDTH) - EXCLUSIVE_OFFSET(PLAYER.bounds.right);
             plat_vel_x = 0;
         }
         // If the player is past the left screen edge
@@ -1982,7 +1979,7 @@ static void move_and_collide(UBYTE mask)
             moving_right = TRUE;
             hit_flag = COLLISION_LEFT;
             wall = WALL_COL_RIGHT;
-            bounds_edge = PLAYER.bounds.right + PX_TO_SUBPX(1);
+            bounds_edge = EXCLUSIVE_OFFSET(PLAYER.bounds.right);
         }
         else
         {
@@ -2147,7 +2144,6 @@ static void move_and_collide(UBYTE mask)
             // Tile snap threshold
             // If offset into tile is greater than amount moved down this frame
             // then must have started below top of the tile and should fall through
-            // if (SUBPX_TILE_REMAINDER(y_bottom) > (SUBPX_TILE_REMAINDER(plat_delta_y) + PX_TO_SUBPX(4))) {
 #ifdef FEAT_PLATFORM_SLOPES
             if (!prev_on_slope && (SUBPX_TILE_REMAINDER(y_bottom) > SUBPX_TILE_REMAINDER(plat_delta_y))) {
 #else
@@ -2230,10 +2226,7 @@ finally_check_actor_col:
                     plat_is_actor_attached = FALSE;
                     plat_next_state = FALL_STATE;
                 }
-                else if (
-                    ((plat_temp_y + PLAYER.bounds.bottom - plat_delta_y - PX_TO_SUBPX(2)) < (hit_actor->pos.y + hit_actor->bounds.top))
-                        && (plat_vel_y >= 0)
-                ) {
+                else if (((plat_temp_y + EXCLUSIVE_OFFSET(PLAYER.bounds.bottom) - plat_delta_y) < (hit_actor->pos.y + hit_actor->bounds.top)) && (plat_vel_y >= 0)) {
                     // Attach to actor (solid or platform)
                     plat_attached_actor = hit_actor;
                     plat_attached_prev_x = hit_actor->pos.x;

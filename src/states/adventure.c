@@ -337,7 +337,7 @@ static void move_and_collide(UBYTE mask)
             while (tile_start != tile_end) {
                 UBYTE tile = tile_at(tile_x, tile_start);
                 if (tile & COLLISION_LEFT) {
-                    new_x = TILE_TO_SUBPX(tile_x) - PLAYER.bounds.right - 1;
+                    new_x = TILE_TO_SUBPX(tile_x) - EXCLUSIVE_OFFSET(PLAYER.bounds.right);
                     adv_vel_x = 0;
                     if (tile & COLLISION_SLOPE && delta.y == 0) {
                         if (tile & COLLISION_TOP) {
@@ -350,7 +350,7 @@ static void move_and_collide(UBYTE mask)
                 }
                 tile_start++;
             }
-            PLAYER.pos.x = MIN(image_width_subpx - PLAYER.bounds.right - PX_TO_SUBPX(1), new_x);
+            PLAYER.pos.x = MIN(image_width_subpx - EXCLUSIVE_OFFSET(PLAYER.bounds.right), new_x);
         } else if (delta.x < 0) {
             UBYTE tile_x = SUBPX_TO_TILE(new_x + PLAYER.bounds.left);
             while (tile_start != tile_end) {
@@ -386,7 +386,7 @@ static void move_and_collide(UBYTE mask)
             while (tile_start != tile_end) {
                 UBYTE tile = tile_at(tile_start, tile_y);
                 if (tile & COLLISION_TOP) {
-                    new_y = TILE_TO_SUBPX(tile_y) - PLAYER.bounds.bottom - 1;
+                    new_y = TILE_TO_SUBPX(tile_y) - EXCLUSIVE_OFFSET(PLAYER.bounds.bottom);
                     adv_vel_y = 0;
                     if (tile & COLLISION_SLOPE && delta.x == 0) {
                         if (tile & COLLISION_LEFT) {
@@ -441,16 +441,16 @@ static void move_and_collide(UBYTE mask)
                     adv_attached_prev_x = hit_actor->pos.x;
                     adv_attached_prev_y = hit_actor->pos.y;
                     if ((temp_y + PLAYER.bounds.bottom) < (hit_actor->pos.y + hit_actor->bounds.top)) {
-                        PLAYER.pos.y += (hit_actor->pos.y + hit_actor->bounds.top) - (PLAYER.pos.y + PLAYER.bounds.bottom) - 1;
+                        PLAYER.pos.y += (hit_actor->pos.y + hit_actor->bounds.top) - (PLAYER.pos.y + EXCLUSIVE_OFFSET(PLAYER.bounds.bottom));
                         collision_dir = DIR_UP;
                     } else if ((temp_y  + PLAYER.bounds.top) > (hit_actor->pos.y + hit_actor->bounds.bottom)) {
-                        PLAYER.pos.y += (hit_actor->pos.y + hit_actor->bounds.bottom) - (PLAYER.pos.y + PLAYER.bounds.top) + 1;
+                        PLAYER.pos.y += (hit_actor->pos.y + EXCLUSIVE_OFFSET(hit_actor->bounds.bottom)) - (PLAYER.pos.y + PLAYER.bounds.top);
                         collision_dir = DIR_DOWN;
                     } else if ((temp_x + PLAYER.bounds.right) < (hit_actor->pos.x + hit_actor->bounds.left)) {
-                        PLAYER.pos.x += (hit_actor->pos.x + hit_actor->bounds.left) - (PLAYER.pos.x + PLAYER.bounds.right) - 1;
+                        PLAYER.pos.x += (hit_actor->pos.x + hit_actor->bounds.left) - (PLAYER.pos.x + EXCLUSIVE_OFFSET(PLAYER.bounds.right));
                         collision_dir = DIR_LEFT;
                     } else if ((temp_x + PLAYER.bounds.left) > hit_actor->pos.x + hit_actor->bounds.right) {
-                        PLAYER.pos.x += (hit_actor->pos.x + hit_actor->bounds.right) - (PLAYER.pos.x + PLAYER.bounds.left) + 1;
+                        PLAYER.pos.x += (hit_actor->pos.x + EXCLUSIVE_OFFSET(hit_actor->bounds.right)) - (PLAYER.pos.x + PLAYER.bounds.left);
                         collision_dir = DIR_RIGHT;
                     } else {
                         collision_dir = hit_actor->dir;
