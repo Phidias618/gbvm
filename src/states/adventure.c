@@ -106,7 +106,7 @@ static WORD temp_x;    // Player's position on the last frame
 // Function Definitions -------------------------------------------------------
 
 static void move_and_collide(UBYTE mask);
-static void adv_deceleration();
+static void adv_deceleration(void);
 
 void adv_state_script_attach(SCRIPT_CTX *THIS) OLDCALL BANKED;
 void adv_state_script_detach(SCRIPT_CTX *THIS) OLDCALL BANKED;
@@ -138,9 +138,6 @@ void adventure_init(void) BANKED {
 }
 
 void adventure_update(void) BANKED {
-    actor_t *hit_actor;
-    UBYTE tile_start, tile_end;
-    UBYTE angle = 0;
     UBYTE player_moving = 0;
 
     // // Update facing_dir only on single cardinal input (ignore diagonals)
@@ -303,6 +300,7 @@ void adventure_update(void) BANKED {
     move_and_collide(COL_CHECK_ALL);
 
     if (INPUT_A_PRESSED) {
+        actor_t *hit_actor = adv_attached_actor;
         if (!hit_actor) {
             hit_actor = actor_in_front_of_player(8, TRUE);
         }
@@ -504,7 +502,7 @@ static void adv_callback_execute(UBYTE i)
     }
 }
 
-static void adv_deceleration() {
+static void adv_deceleration(void) {
   ///////////////////////////
   //  Deceleration
   ///////////////////////////
