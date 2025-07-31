@@ -341,9 +341,9 @@ static void move_and_collide(UBYTE mask)
                     adv_vel_x = 0;
                     if (tile & COLLISION_SLOPE && delta.y == 0) {
                         if (tile & COLLISION_TOP) {
-                            adv_vel_y = adv_walk_vel;
-                        } else if (tile & COLLISION_BOTTOM) {
                             adv_vel_y = -adv_walk_vel;
+                        } else if (tile & COLLISION_BOTTOM) {
+                            adv_vel_y = adv_walk_vel;
                         }
                     } 
                     break;
@@ -360,9 +360,9 @@ static void move_and_collide(UBYTE mask)
                     adv_vel_x = 0;
                     if (tile & COLLISION_SLOPE && delta.y == 0) {
                         if (tile & COLLISION_TOP) {
-                            adv_vel_y = adv_walk_vel;
-                        } else if (tile & COLLISION_BOTTOM) {
                             adv_vel_y = -adv_walk_vel;
+                        } else if (tile & COLLISION_BOTTOM) {
+                            adv_vel_y = adv_walk_vel;
                         }
                     }                    
                     break;
